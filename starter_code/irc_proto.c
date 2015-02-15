@@ -21,7 +21,7 @@
 #define CMD_ARGS char *prefix, char **params, int n_params
 typedef void (*cmd_handler_t)(CMD_ARGS);
 #define COMMAND(cmd_name) void cmd_name(CMD_ARGS)
-    
+
 
 struct dispatch {
     char cmd[MAX_COMMAND];
@@ -61,7 +61,7 @@ struct dispatch cmds[] = {
  *
  * This function takes a single line of text.  You MUST have
  * ensured that it's a complete line (i.e., don't just pass
- * it the result of calling read()).  
+ * it the result of calling read()).
  * Strip the trailing newline off before calling this function.
  */
 
@@ -80,15 +80,15 @@ handle_line(char *line)
     }
     if (!command || *command == '\0') {
 	/* Send an unknown command error! */
-        some_of_your_code_better_go_here();
+        // some_of_your_code_better_go_here();
 	return;
     }
-    
+
     while (*command == ' ') {
 	*command++ = 0;
     }
     if (*command == '\0') {
-        and_more_of_your_code_should_go_here();
+        // and_more_of_your_code_should_go_here();
 	/* Send an unknown command error! */
 	return;
     }
@@ -108,7 +108,7 @@ handle_line(char *line)
 	    if (*trailing == ':')
 		*trailing++ = 0;
 	}
-	
+
 	do {
 	    if (*pstart != '\0') {
 		params[n_params++] = pstart;
@@ -127,7 +127,7 @@ handle_line(char *line)
     if (trailing && n_params < MAX_MSG_TOKENS) {
 	params[n_params++] = trailing;
     }
-    
+
     DPRINTF(DEBUG_INPUT, "Prefix:  %s\nCommand: %s\nParams (%d):\n",
 	    prefix ? prefix : "<none>", command, n_params);
     int i;
@@ -138,15 +138,15 @@ handle_line(char *line)
 
     for (i = 0; i < NELMS(cmds); i++) {
 	if (!strcasecmp(cmds[i].cmd, command)) {
-	    if (cmds[i].needreg && /* YOUR TEST HERE TO
+	    if (cmds[i].needreg /* && YOUR TEST HERE TO
                                       SEE IF CLIENT IS REGISTERED */) {
-                youshouldputcodehere();
+                // youshouldputcodehere();
 		/* ERROR - the client is not registered and they need
 		 * to be in order to use this command! */
 	    } else if (n_params < cmds[i].minparams) {
 		/* ERROR - the client didn't specify enough parameters
 		 * for this command! */
-                and_you_should_put_code_here_too();
+                // and_you_should_put_code_here_too();
 	    } else {
 		/* Here's the call to the cmd_foo handler... modify
 		 * to send it the right params per your program
@@ -158,7 +158,7 @@ handle_line(char *line)
     }
     if (i == NELMS(cmds)) {
 	/* ERROR - unknown command! */
-        yet_again_you_should_put_code_here();
+        // yet_again_you_should_put_code_here();
     }
 }
 
