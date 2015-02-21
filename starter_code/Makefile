@@ -3,9 +3,9 @@
 # the debugging functions.
 # We suggest adding three targets:  all, clean, test
 
-CFLAGS=-Wall -DDEBUG -I.
+CFLAGS=-Wall -DDEBUG -O3 -std=gnu11 -I.
 CC=gcc
-OBJECTS=debug.o irc_proto.o sircd.o
+OBJECTS=debug.o irc_proto.o sircd.o rtlib.o
 
 all: clean sircd
 
@@ -20,6 +20,9 @@ irc_proto.o: irc_proto.c irc_proto.h
 
 sircd.o: sircd.c sircd.h
 	$(CC) $(CFLAGS) -c sircd.c -o sircd.o
+
+rtlib.o: rtlib.c rtlib.h
+	$(CC) $(CFLAGS) -c rtlib.c -o rtlib.o
 
 sircd: $(OBJECTS)
 	$(CC) $(CFLAGS) $(OBJECTS) -o sircd
