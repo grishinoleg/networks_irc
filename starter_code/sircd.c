@@ -98,13 +98,14 @@ int write_to_client (int filedes, char *buffer) {
         return -1;
     else {
         /* Data read. */
-        fprintf (stderr, "Server: sent message back: `%s'\n", buffer);
+        fprintf (stderr, "Server: sent message back: '%s'\n", buffer);
         return 0;
     }
 }
 
 int read_from_client (int filedes) {
     char buffer[MAX_MSG_LEN];
+    char *new_line_char;
     int nbytes;
 
     nbytes = read (filedes, buffer, MAX_MSG_LEN);
@@ -117,7 +118,12 @@ int read_from_client (int filedes) {
         return -1;
     else {
         /* Data read. */
-        fprintf (stderr, "Server: got message: `%s'\n", buffer);
+        new_line_char = strstr(buffer, "\r\n");
+
+        buffer[new_line_char-buffer+2] = '\0';
+
+        fprintf (stderr, "Server: got message: '%s'\n", buffer);
+
         write_to_client(filedes, buffer);
         return 0;
     }
