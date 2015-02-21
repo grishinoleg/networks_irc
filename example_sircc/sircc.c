@@ -21,7 +21,7 @@
 
 #ifndef SHUT_WR
 #define SHUT_WR 1
-#endif	
+#endif
 
 #define MAX_MSG_LEN 512
 #define  MAX(a,b) (((a > b)) ? (a) : (b))
@@ -30,7 +30,7 @@
  * initialize with local server and default irc server port
  */
 static char  server_ip[MAX_MSG_LEN] = "127.0.0.1";
-int          server_port = 6667;
+int          server_port = 20102;
 
 /*
  * usage(): display usage info about the client
@@ -65,9 +65,9 @@ int socket_connect()
 	if (fcntl(sockfd, F_SETFL, O_NONBLOCK) < 0){
 		perror("fcntl (set non-blocking)");
 		exit(1);
-	}	
+	}
 
-	return sockfd;			
+	return sockfd;
 }
 
 /*
@@ -83,7 +83,7 @@ int main(int argc, char *argv[])
 
 	/* display usage information */
 	if (argc > 1){
-		if ((strcmp(argv[1], "--help") == 0) || 
+		if ((strcmp(argv[1], "--help") == 0) ||
 		    (strcmp(argv[1], "-h") == 0)){
 			usage(argv[0]);
 			return -1;
@@ -92,7 +92,7 @@ int main(int argc, char *argv[])
 		if (argc == 2){
 			/* parse options if there are */
 			if (strchr(argv[1], '.')){
-				/* consider it to be an IP with ".", 
+				/* consider it to be an IP with ".",
 				   buggy with no further checking though */
 				strcpy(server_ip, argv[1]);
 			}else{
@@ -124,7 +124,7 @@ int main(int argc, char *argv[])
 		if (ready == 0)
 			continue;
 
-		// display server message first 
+		// display server message first
 		if (FD_ISSET(server_sock, &read_fds)){
 			do {
 				bzero(recvbuf, MAX_MSG_LEN+1);
@@ -151,7 +151,7 @@ int main(int argc, char *argv[])
 				}
 			}while (byte_read > 0);
 		}
-	    
+
 		// get a line from screen
 		if (FD_ISSET(fileno(stdin), &read_fds)){
 			if (!fgets(sendbuf, MAX_MSG_LEN, stdin)){
@@ -172,7 +172,7 @@ int main(int argc, char *argv[])
 				exit(1);
 			}
 			strcpy(end, "\r\n");
-			
+
 			// send the line to the server
 			Rio_writen(server_sock, sendbuf, strlen(sendbuf));
 		}
