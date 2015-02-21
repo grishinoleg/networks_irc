@@ -31,8 +31,6 @@ void usage() {
 
 int main( int argc, char *argv[] )
 {
-    fprintf(stdout, "HELLOOOOO WORLD!!!\n");
-    exit(1);
     extern char *optarg;
     extern int optind;
     int ch;
