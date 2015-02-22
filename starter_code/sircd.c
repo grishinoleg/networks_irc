@@ -13,10 +13,12 @@
 // #include "rtgrading.h"
 #include "sircd.h"
 #include "irc_proto.h"
+#include "csapp.h"
 
 u_long curr_nodeID;
 rt_config_file_t   curr_node_config_file;  /* The config_file  for this node */
 rt_config_entry_t *curr_node_config_entry; /* The config_entry for this node */
+int skip = 0;
 
 void init_node(char *nodeID, char *config_file);
 void irc_server();
@@ -104,7 +106,8 @@ int write_to_client (int filedes, char *buffer) {
 }
 
 int read_from_client (int filedes) {
-    char buffer[MAX_MSG_LEN];
+    /* plus one to accomodate null pointer at the end */
+    char buffer[MAX_MSG_LEN+1];
     char *new_line_char;
     int nbytes;
 
@@ -118,15 +121,33 @@ int read_from_client (int filedes) {
         return -1;
     else {
         /* Data read. */
-        new_line_char = strstr(buffer, "\r\n");
+        if ( (new_line_char = strstr(buffer, "\r\n")) ) {
 
-        buffer[new_line_char-buffer+2] = '\0';
+            if (skip) {
+                skip = 0;
+            } else {
 
-        fprintf (stderr, "Server: got message: '%s'\n", buffer);
+                buffer[new_line_char-buffer+2] = '\0';
 
-        write_to_client(filedes, buffer);
-        return 0;
+                fprintf (stderr, "Server: got message: '%s'\n", buffer);
+
+                write_to_client(filedes, buffer);
+            }
+
+        } else {
+
+            if (!skip) {
+                fprintf (stderr, "Server: the message is too long\n");
+            }
+
+            skip = 1;
+
+        }
+
     }
+
+    return 0;
+
 }
 
 void irc_server() {

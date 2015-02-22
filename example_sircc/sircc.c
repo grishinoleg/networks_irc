@@ -23,7 +23,7 @@
 #define SHUT_WR 1
 #endif
 
-#define MAX_MSG_LEN 512
+#define MAX_MSG_LEN 2048
 #define  MAX(a,b) (((a > b)) ? (a) : (b))
 
 /*

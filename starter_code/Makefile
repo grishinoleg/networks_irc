@@ -3,9 +3,11 @@
 # the debugging functions.
 # We suggest adding three targets:  all, clean, test
 
-CFLAGS=-Wall -DDEBUG -O3 -std=gnu11 -I.
-CC=gcc
-OBJECTS=debug.o irc_proto.o sircd.o rtlib.o
+CFLAGS	= -Wall -DDEBUG -O3 -std=gnu11 -I.
+CC		= gcc
+OBJECTS = debug.o irc_proto.o sircd.o rtlib.o
+# csapp.o
+LIB		= -lpthread
 
 all: clean sircd
 
@@ -24,8 +26,11 @@ sircd.o: sircd.c sircd.h
 rtlib.o: rtlib.c rtlib.h
 	$(CC) $(CFLAGS) -c rtlib.c -o rtlib.o
 
+# csapp.o: csapp.c csapp.h
+# 	$(CC) $(CFLAGS) -c csapp.c -o csapp.o
+
 sircd: $(OBJECTS)
-	$(CC) $(CFLAGS) $(OBJECTS) -o sircd
+	$(CC) $(CFLAGS) $(OBJECTS) -o sircd $(LIB)
 
 .PHONY : clean
 clean:
