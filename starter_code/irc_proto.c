@@ -24,7 +24,7 @@
  * or however you set it up.
  */
 
-#define CMD_ARGS char *prefix, char **params, int n_params
+#define CMD_ARGS client *client, char *prefix, char **params, int n_params
 
 typedef void (*cmd_handler_t)(CMD_ARGS);
 
@@ -42,13 +42,28 @@ struct dispatch {
 an error message if a user attempts to use an already-taken nickname. */
 
 void cmd_nick(CMD_ARGS) {
-    /* Do something */
+    if ( (int nickname_collision = check_nick(client, params[0]) ) {
+        write_to_client(client->sock, ERR_NICKCOLLISION);
+    } else {
+        char *prev = strdup(client->nick);
+        strcpy(client->nick, params[0]);
+        client->registered_nick = 1;
+        client->registered &= 1;
+        notify_username_change(client, prev);
+    }
 }
 
 
 /* USER – Specify the username, hostname, and real name of a user. */
 
 void cmd_user(CMD_ARGS) {
+
+    strcpy(client->user, params[0]);
+    strcpy(client->servername, params[2]);
+    strcpy(client->realname, params[3]);
+    client->registered_user = 1;
+    client->registered &= 1;
+
 }
 
 
@@ -56,6 +71,13 @@ void cmd_user(CMD_ARGS) {
 other users sharing the channel with the departing client. */
 
 void cmd_quit(CMD_ARGS) {
+    if (client->channel) {
+        notify_quit(client, params[0]);
+    }
+    close (client->sock);
+    FD_CLR (client->sock, &active_fd_set);
+    clear_client(client);
+
 }
 
 
@@ -66,6 +88,12 @@ member of at most one channel. Joining a new channel should implicitly cause the
 to leave the current channel. */
 
 void cmd_join(CMD_ARGS) {
+    if ( strcasecmp(client->channel, params[0]) ) {
+        // we only care about the first channel
+        cmd_part(client, prefix, params, 1);
+        strcpy(client->channel, params[0]);
+        notify_channel_join(client, params[0]);
+    }
 }
 
 
@@ -74,6 +102,20 @@ PART should still handle multiple arguments. If no such channel exists or it exi
 user is not currently in that channel, send the appropriate error message. */
 
 void cmd_part(CMD_ARGS) {
+    char msg[strlen(client->nick)+MAX_CHANNAME+11];
+
+    for (i = 0; i < n_params; i++) {
+        if (!strcasecmp(client->channel, params[i])) {
+            write_to_client(client->sock, ERR_NOTONCHANNEL);
+        } else if (!channel_exists(channel)) {
+            write_to_client(client->sock, ERR_NOSUCHCHANNEL);
+        } else {
+            snprintf(msg, sizeof(msg), ":%s leaving %s\n",
+                client->nick, params[i]);
+            notify_quit(client, msg);
+        }
+    }
+    client->channel = '\0';
 }
 
 
@@ -82,6 +124,7 @@ parameters and list all channels and the number of users on the local server in 
 Advanced Commands */
 
 void cmd_list(CMD_ARGS) {
+    list_all_channels();
 }
 
 
@@ -91,6 +134,15 @@ except the message originator. If the target is a nickname, the message will be 
 that user. */
 
 void cmd_privmsg(CMD_ARGS) {
+    for (i = 0; i < n_params; i++) {
+        if (channel_exists(params[i])) {
+            send_to_channel(client, params[i], params[n_params]);
+        } else {
+            if (!send_to_user(params[i], params[n_params])) {
+                write_to_client(client->sock, ERR_NORECIPIENT);
+            }
+        }
+    }
 }
 
 
@@ -99,6 +151,7 @@ to support querying channels on the local server. It should do an exact match on
 name and return the users on that channel. */
 
 void cmd_who(CMD_ARGS) {
+    list_users_on(params[0]);
 }
 
 
@@ -108,16 +161,15 @@ void cmd_who(CMD_ARGS) {
  */
 struct dispatch cmds[] = {
     /* cmd,    reg  #parm  function */
-    { "NICK",    0, 0, cmd_nick    },
+    { "NICK",    0, 1, cmd_nick    },
     { "USER",    0, 4, cmd_user    },
-    { "QUIT",    0, 0, cmd_quit    },
+    { "QUIT",    1, 0, cmd_quit    },
     { "JOIN",    1, 1, cmd_join    },
     { "PART",    1, 1, cmd_part    },
     { "LIST",    1, 0, cmd_list    },
     { "PRIVMSG", 1, 2, cmd_privmsg },
     { "WHO",     1, 0, cmd_who     },
 };
-
 
 /* Handle a command line.  NOTE:  You will probably want to
  * modify the way this function is called to pass in a client
@@ -132,7 +184,7 @@ struct dispatch cmds[] = {
  * Strip the trailing newline off before calling this function.
  */
 
-void handle_line(char *line) {
+void handle_line(char *line, client *client) {
     char *prefix = NULL, *trailing = NULL;
     char *command, *pstart, *params[MAX_MSG_TOKENS];
     int n_params = 0;
@@ -147,6 +199,7 @@ void handle_line(char *line) {
 
     if (!command || *command == '\0') {
         /* Send ERR_UNKNOWNCOMMAND */
+        write_to_client(client->sock, ERR_UNKNOWNCOMMAND);
         return;
     }
 
@@ -156,6 +209,7 @@ void handle_line(char *line) {
 
     if (*command == '\0') {
         /* Send ERR_UNKNOWNCOMMAND */
+        write_to_client(client->sock, ERR_UNKNOWNCOMMAND);
         return;
     }
 
@@ -207,20 +261,21 @@ void handle_line(char *line) {
 
     for (i = 0; i < NELMS(cmds); i++) {
     	if (!strcasecmp(cmds[i].cmd, command)) {
-    	    if (cmds[i].needreg /* && YOUR TEST HERE TO
-                                          SEE IF CLIENT IS REGISTERED */) {
+    	    if (cmds[i].needreg && !client->registered ) {
                 // raise ERR_NOTREGISTERED
         		/* ERROR - the client is not registered and they need
         		 * to be in order to use this command! */
+                write_to_client(client->sock, ERR_NOTREGISTERED);
             } else if (n_params < cmds[i].minparams) {
-    		/* ERROR - the client didn't specify enough parameters
-    		 * for this command! */
+        		/* ERROR - the client didn't specify enough parameters
+        		 * for this command! */
                 // raise ERR_NEEDMOREPARAMS
+                write_to_client(client->sock, ERR_NEEDMOREPARAMS);
             } else {
         		/* Here's the call to the cmd_foo handler... modify
         		 * to send it the right params per your program
         		 * structure. */
-                (*cmds[i].handler)(prefix, params, n_params);
+                (*cmds[i].handler)(client, prefix, params, n_params);
             }
             break;
         }
@@ -229,5 +284,6 @@ void handle_line(char *line) {
     if (i == NELMS(cmds)) {
     	/* ERROR - unknown command! */
         // raise ERR_UNKNOWNCOMMAND
+        write_to_client(client->sock, ERR_UNKNOWNCOMMAND);
     }
 }

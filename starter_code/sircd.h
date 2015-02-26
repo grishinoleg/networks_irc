@@ -17,6 +17,8 @@
         int sock;
         struct sockaddr_in cliaddr;
         unsigned inbuf_size;
+        int registered_nick;
+        int registered_user;
         int registered;
         char hostname[MAX_HOSTNAME];
         char servername[MAX_SERVERNAME];
@@ -26,5 +28,16 @@
         char inbuf[MAX_MSG_LEN+1];
         char channel[MAX_CHANNAME];
     } client;
+
+    void clear_client(client *client);
+    void write_to_client(int filedes, char *buffer);
+    int check_nick(client *client, char *nick);
+    int notify_nick_change(client *client, char *nick);
+    void notify_quit(client *client, char *quit_msg);
+    void notify_channel_join(client *client, char *channel);
+    void list_all_channels(client *client);
+    void list_users_on(char *channel);
+    int channel_exists(char *channel);
+    void send_to_channel(client *client, char *channel, char *msg);
 
 #endif /* _SIRCD_H_ */
