@@ -18,7 +18,6 @@
 u_long curr_nodeID;
 rt_config_file_t   curr_node_config_file;  /* The config_file  for this node */
 rt_config_entry_t *curr_node_config_entry; /* The config_entry for this node */
-int skip = 0;
 
 void init_node(char *nodeID, char *config_file);
 void irc_server();
@@ -90,6 +89,8 @@ int make_socket (uint16_t port) {
 int write_to_client (int filedes, char *buffer) {
     int nbytes;
 
+    strcat(buffer, "\r\n");
+
     nbytes = write (filedes, buffer, MAX_MSG_LEN);
     if (nbytes < 0) {
         /* Read error. */
@@ -105,42 +106,76 @@ int write_to_client (int filedes, char *buffer) {
     }
 }
 
-int read_from_client (int filedes) {
+int read_from_client (int filedes, char *saved, int *skip) {
     /* plus one to accomodate null pointer at the end */
-    char buffer[MAX_MSG_LEN+1];
-    char *new_line_char;
+    char buffer[MAX_MSG_LEN], *token, *message;
     int nbytes;
 
-    nbytes = read (filedes, buffer, MAX_MSG_LEN);
+    /* copy our saved command into the buffer, so we don't have to implement
+    different logic down the line */
+    strcpy(buffer, saved);
+    int saved_len = strlen(saved);
+
+    // fprintf (stderr, "0: saved_len: %d. saved is \n'%s'\n", saved_len, saved);
+
+    *saved = '\0';
+
+    nbytes = read(filedes, buffer+saved_len, MAX_MSG_LEN-saved_len);
+
+    buffer[saved_len+nbytes] = '\0';
+    // fprintf (stderr, "0: got %d bytes. Buffer is \n'%s'\n", nbytes, buffer);
+
     if (nbytes < 0) {
         /* Read error. */
         perror ("read");
         exit (EXIT_FAILURE);
-    } else if (nbytes == 0)
+    } else if (nbytes <= 2)
         /* End-of-file. */
         return -1;
     else {
         /* Data read. */
-        if ( (new_line_char = strstr(buffer, "\r\n")) ) {
 
-            if (skip) {
-                skip = 0;
+        if ( (token = strtok(buffer, "\r\n")) && strlen(token) != MAX_MSG_LEN-saved_len ) {
+
+            // fprintf (stderr, "1: '%s'\n", token);
+
+
+            if (*skip) {
+                token = strtok(NULL, "\r\n");
+                fprintf (stderr, "Server: the message is too long\n");
+                *skip = 0;
             } else {
 
-                buffer[new_line_char-buffer+2] = '\0';
+                /* copy token to message */
+                message = strdup(token);
 
-                fprintf (stderr, "Server: got message: '%s'\n", buffer);
+                /* every time while runs, we save the last token in message */
+                while ( (token = strtok(NULL, "\r\n")) ) {
+                    // fprintf (stderr, "whiling\n");
+                    fprintf (stderr, "Server: got message: '%s'\n", message);
+                    write_to_client(filedes, message);
+                    message = strdup(token);
+                }
 
-                write_to_client(filedes, buffer);
+                /* if message ends in \r\n, it's valid; if not, we need to copy it over */
+                if (buffer[nbytes+saved_len-1] == '\n') {
+                    fprintf (stderr, "Server: got message: '%s'\n", message);
+                    write_to_client(filedes, message);
+                    free(message);
+                } else {
+                    fprintf(stderr, "Server: saving %s\n", message);
+                    strcpy(saved, message);
+                    free(message);
+                }
+
             }
 
         } else {
 
-            if (!skip) {
-                fprintf (stderr, "Server: the message is too long\n");
-            }
+            fprintf (stderr, "Server: Command too long\n");
 
-            skip = 1;
+            /* There is no \r\n, which means this is not a valid command and it's too long */
+            *skip = 1;
 
         }
 
@@ -164,6 +199,11 @@ void irc_server() {
         perror ("listen");
         exit (EXIT_FAILURE);
     }
+
+    /* Initialize array that stores commands that carry over,
+    and remembers which inputs to skip */
+    char saved[FD_SETSIZE][MAX_MSG_LEN];
+    int skip[FD_SETSIZE];
 
     /* Initialize the set of active sockets. */
     FD_ZERO (&active_fd_set);
@@ -198,7 +238,7 @@ void irc_server() {
                     FD_SET (new, &active_fd_set);
                 } else {
                     /* Data arriving on an already-connected socket. */
-                    if (read_from_client (i) < 0) {
+                    if (read_from_client (i, saved[i], &skip[i]) < 0) {
                         close (i);
                         FD_CLR (i, &active_fd_set);
                     }
