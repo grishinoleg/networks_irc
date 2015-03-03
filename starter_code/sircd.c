@@ -22,7 +22,7 @@ rt_config_entry_t *curr_node_config_entry; /* The config_entry for this node */
 void init_node(char *nodeID, char *config_file);
 void irc_server();
 
-struct client clients[FD_SETSIZE];
+struct client *clients[FD_SETSIZE];
 char channels[MAX_CLIENTS][MAX_CHANNAME];
 int user_count[MAX_CLIENTS];
 
@@ -137,14 +137,14 @@ int read_from_client (int filedes, char *saved, int *skip) {
                 while ( (token = strtok(NULL, "\r\n")) ) {
                     // fprintf (stderr, "whiling\n");
                     fprintf (stderr, "Server: got message: '%s'\n", message);
-                    handle_line(message, clients[filedes]);
+                    // handle_line(message, clients[filedes]);
                     message = strdup(token);
                 }
 
                 /* if message ends in \r\n, it's valid; if not, we need to copy it over */
                 if (buffer[nbytes+saved_len-1] == '\n') {
                     fprintf (stderr, "Server: got message: '%s'\n", message);
-                    handle_line(message, clients[filedes]);
+                    // handle_line(message, clients[filedes]);
                     free(message);
                 } else {
                     fprintf(stderr, "Server: saving %s\n", message);
@@ -218,7 +218,7 @@ void irc_server() {
                     /* init client in clients */
                     clear_client(clients[i]);
                     clients[i]->sock = sock;
-                    clients[i]->cliaddr = (struct sockaddr *) &clientname;
+                    clients[i]->cliaddr = (struct sockaddr_in) clientname;
                     /* since hostname is ignored */
                     strcpy(clients[i]->hostname, inet_ntoa (clientname.sin_addr));
 
@@ -269,12 +269,12 @@ void clear_client(client *client) {
     client->registered = 0;
     client->registered_nick = 0;
     client->registered_user = 0;
-    client->user = '\0';
-    client->nick = '\0';
-    client->hostname = '\0';
-    client->servername = '\0';
-    client->realname = '\0';
-    client->channel = '\0';
+    *client->user = '\0';
+    *client->nick = '\0';
+    *client->hostname = '\0';
+    *client->servername = '\0';
+    *client->realname = '\0';
+    *client->channel = '\0';
 }
 
 int write_to_client (int filedes, char *buffer) {
@@ -298,12 +298,12 @@ int write_to_client (int filedes, char *buffer) {
 /* functions used in irc_proto */
 
 int check_nick(client *client, char *nick) {
-    for (i = 0; i < FD_SETSIZE; ++i) {
-        if (FD_ISSET (i, &read_fd_set) && i != client->sock
-            && !strcasecmp(clients[i]->nick, nick)) {
+    for (int i = 0; i < FD_SETSIZE; ++i) {
+        if (i != client->sock && !strcasecmp(clients[i]->nick, nick)) {
             return 1;
         }
     }
+    return 0;
 }
 
 void notify_nick_change(client *client, char *nick) {
@@ -311,31 +311,16 @@ void notify_nick_change(client *client, char *nick) {
     snprintf(msg, sizeof(msg), ":%s!%s@%s NICK %s\n",
         nick, client->user, client->hostname, client->nick);
 
-    for (i = 0; i < FD_SETSIZE; ++i) {
-        if (FD_ISSET (i, &read_fd_set) && i != client->sock) {
+    for (int i = 0; i < FD_SETSIZE; ++i) {
+        if (i != client->sock) {
             write_to_client(i, msg);
         }
     }
-}
-
-void notify_quit(client *client, char *quit_msg) {
-    char msg[MAX_USERNAME*2+MAX_HOSTNAME+strlen(quit_msg)+10];
-    snprintf(msg, sizeof(msg), ":%s!%s@%s QUIT %s\n",
-        nick, client->user, client->hostname, quit_msg);
-
-    for (i = 0; i < FD_SETSIZE; ++i) {
-        if (FD_ISSET (i, &read_fd_set) && i != client->sock
-            && !strcasecmp(client->channel, clients[i]->channel) ) {
-            write_to_client(i, msg);
-        }
-    }
-
-    add_channel_count(client->channel, -1);
 }
 
 void add_channel_count(char *channel, int count) {
     char *ch;
-    int i;
+    int i = 0;
 
     for (ch = channels[i]; ch != NULL; i++) {
         if ( !strcasecmp(ch, channel) ) {
@@ -358,13 +343,28 @@ void add_channel_count(char *channel, int count) {
     user_count[i] = count;
 }
 
+void notify_quit(client *client, char *quit_msg) {
+    char msg[MAX_USERNAME*2+MAX_HOSTNAME+strlen(quit_msg)+10];
+    snprintf(msg, sizeof(msg), ":%s!%s@%s QUIT %s\n",
+        client->nick, client->user, client->hostname, quit_msg);
+
+    for (int i = 0; i < FD_SETSIZE; ++i) {
+        if (i != client->sock
+            && !strcasecmp(client->channel, clients[i]->channel) ) {
+            write_to_client(i, msg);
+        }
+    }
+
+    add_channel_count(client->channel, -1);
+}
+
 void notify_channel_join(client *client, char *channel) {
     char msg[MAX_USERNAME+MAX_CHANNAME+7];
     snprintf(msg, sizeof(msg), ":%s JOIN %s\n",
         client->nick, channel);
 
-    for (i = 0; i < FD_SETSIZE; ++i) {
-        if (FD_ISSET (i, &read_fd_set) && i != client->sock) {
+    for (int i = 0; i < FD_SETSIZE; ++i) {
+        if (i != client->sock) {
             write_to_client(i, msg);
         }
     }
@@ -373,37 +373,36 @@ void notify_channel_join(client *client, char *channel) {
 }
 
 void list_all_channels(client *client) {
-    msg[MAX_CHANNAME+16];
+    char msg[MAX_CHANNAME+16];
+    int i = 0;
 
     for (char *ch = channels[i]; ch != NULL; i++) {
         snprintf(msg, sizeof(msg), "%s has %d users\n",
-            ch, count[i]);
+            ch, user_count[i]);
         write_to_client(client->sock, msg);
     }
 }
 
-void list_users_on(char *channel) {
-    char *ch = channels;
+void list_users_on(client *client, char *channel) {
+    int i;
 
     char msg[MAX_USERNAME*MAX_CLIENTS+MAX_CHANNAME];
 
-    while (ch) {
-        strcat(msg, ch);
-        strcat(msg, " has users:")
-        for (i = 0; i < FD_SETSIZE; ++i) {
-            if (FD_ISSET (i, &read_fd_set) && !strcasecmp(ch, clients[i]->channel) ) {
-                strcat(msg, " ");
-                strcat(msg, clients[i]->nick);
-            }
+    strcat(msg, channel);
+    strcat(msg, " has users:");
+    for (i = 0; i < FD_SETSIZE; ++i) {
+        if (!strcasecmp(channel, clients[i]->channel) ) {
+            strcat(msg, " ");
+            strcat(msg, clients[i]->nick);
         }
-        strcat(msg, "\n");
-        write_to_client(client->sock, msg);
-        ch++;
     }
+    strcat(msg, "\n");
+    write_to_client(client->sock, msg);
+
 }
 
 int channel_exists(char *channel) {
-    char *ch = channels;
+    char *ch = channels[0];
 
     while (ch) {
         if ( !strcasecmp(ch, channel) ) {
@@ -415,26 +414,35 @@ int channel_exists(char *channel) {
     return 0;
 }
 
-void send_to_channel(client *client, char *channel, char *msg) {
+void send_to_channel(client *client, char *channel, char *message) {
+
     char msg[MAX_MSG_LEN+MAX_USERNAME+MAX_CHANNAME+10];
-    for (i = 0; i < FD_SETSIZE; ++i) {
-        if (FD_ISSET (i, &read_fd_set) && !strcasecmp(channel, clients[i]->channel) ) {
+
+    for (int i = 0; i < FD_SETSIZE; ++i) {
+        if (!strcasecmp(channel, clients[i]->channel) ) {
             snprintf(msg, sizeof(msg), ":%s PRIVMSG %s :%s\n",
-                client->nick, channel, msg);
+                client->nick, channel, message);
             write_to_client(clients[i]->sock, msg);
         }
     }
 }
 
-int send_to_user(client *client, char *nick, char *msg) {
+int send_to_user(client *client, char *nick, char *message) {
+
     char msg[MAX_MSG_LEN+MAX_USERNAME*2+10];
-    for (i = 0; i < FD_SETSIZE; ++i) {
-        if (FD_ISSET (i, &read_fd_set) && !strcasecmp(nick, clients[i]->nick) ) {
+
+    for (int i = 0; i < FD_SETSIZE; ++i) {
+        if (!strcasecmp(nick, clients[i]->nick) ) {
             snprintf(msg, sizeof(msg), ":%s PRIVMSG %s :%s\n",
-                client->nick, channel, msg);
+                client->nick, client->channel, message);
             write_to_client(clients[i]->sock, msg);
             return 1;
         }
     }
     return 0;
+}
+
+void quit_client(client *client) {
+    close (client->sock);
+    clear_client(client);
 }

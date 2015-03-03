@@ -13,7 +13,7 @@
     #define MAX_REALNAME 512
     #define MAX_CHANNAME 512
 
-    typedef struct {
+    typedef struct client {
         int sock;
         struct sockaddr_in cliaddr;
         unsigned inbuf_size;
@@ -30,14 +30,16 @@
     } client;
 
     void clear_client(client *client);
-    void write_to_client(int filedes, char *buffer);
+    int write_to_client (int filedes, char *buffer);
     int check_nick(client *client, char *nick);
-    int notify_nick_change(client *client, char *nick);
+    void notify_nick_change(client *client, char *nick);
     void notify_quit(client *client, char *quit_msg);
     void notify_channel_join(client *client, char *channel);
     void list_all_channels(client *client);
-    void list_users_on(char *channel);
+    void list_users_on(client *client, char *channel);
     int channel_exists(char *channel);
     void send_to_channel(client *client, char *channel, char *msg);
+    int send_to_user(client *client, char *nick, char *msg);
+    void quit_client(client *client);
 
 #endif /* _SIRCD_H_ */
