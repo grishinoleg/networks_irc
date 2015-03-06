@@ -35,8 +35,9 @@ struct dispatch {
     cmd_handler_t handler;
 };
 
-/* DELETE */
-char error[1] = "e";
+/* Error message */
+char err[MAX_MSG_LEN];
+char hostname[MAX_HOSTNAME];
 
 
 /* Command handlers */
@@ -45,16 +46,36 @@ char error[1] = "e";
 an error message if a user attempts to use an already-taken nickname. */
 
 void cmd_nick(CMD_ARGS) {
+
+    if (!is_valid_nick(params[0])) {
+
+        snprintf(err, MAX_MSG_LEN, ":%s %d %s %s :Erroneus nickname\n",
+            hostname, ERR_NICKNAMEINUSE, client->nick, params[0]);
+        write_to_client(client->sock, err);
+        return;
+    }
+
+    // silently do nothing if user changes nick to its own
+    if ( !strcasecmp(client->nick, params[0]) ) {
+        return;
+    }
+
     if ( check_nick(client, params[0]) ) {
-        // write_to_client(client->sock, ERR_NICKNAMEINUSE);
-        write_to_client(client->sock, error);
+        // ERR_NICKNAMEINUSE
+        snprintf(err, MAX_MSG_LEN, ":%s %d %s %s :Nickname is already in use\n",
+            hostname, ERR_NICKNAMEINUSE, client->nick, params[0]);
+        write_to_client(client->sock, err);
     } else {
         char *prev = strdup(client->nick);
         strcpy(client->nick, params[0]);
         client->registered_nick = 1;
-        client->registered &= 1;
-        notify_nick_change(client, prev);
+        if (client->registered_user) {
+            client->registered = 1;
+            // Notify other users only if registered
+            notify_nick_change(client, prev);
+        }
     }
+
 }
 
 
@@ -62,11 +83,20 @@ void cmd_nick(CMD_ARGS) {
 
 void cmd_user(CMD_ARGS) {
 
+    if (client->registered) {
+        // ERR_ALREADYREGISTRED
+        snprintf(err, MAX_MSG_LEN, ":%s %d %s :You may not reregister\n",
+            hostname, ERR_ALREADYREGISTRED, client->nick);
+        write_to_client(client->sock, err);
+        return;
+    }
     strcpy(client->user, params[0]);
     strcpy(client->servername, params[2]);
     strcpy(client->realname, params[3]);
     client->registered_user = 1;
-    client->registered &= 1;
+    if (client->registered_nick) {
+        client->registered = 1;
+    }
 
 }
 
@@ -75,11 +105,12 @@ void cmd_user(CMD_ARGS) {
 other users sharing the channel with the departing client. */
 
 void cmd_quit(CMD_ARGS) {
-    if (client->channel) {
-        notify_quit(client, params[0]);
+
+    if (*client->channel) {
+        notify_quit(client, params[0], n_params);
     }
 
-    quit_client(client);
+    quit_client (client);
 
 }
 
@@ -89,22 +120,18 @@ PART should still handle multiple arguments. If no such channel exists or it exi
 user is not currently in that channel, send the appropriate error message. */
 
 void cmd_part(CMD_ARGS) {
-    char msg[strlen(client->nick)+MAX_CHANNAME+11];
 
     for (int i = 0; i < n_params; i++) {
-        if (!strcasecmp(client->channel, params[i])) {
-            // write_to_client(client->sock, ERR_NOTONCHANNEL);
-            write_to_client(client->sock, error);
-        } else if (!channel_exists(client->channel)) {
-            // write_to_client(client->sock, ERR_NOSUCHCHANNEL);
-            write_to_client(client->sock, error);
+        if (strcasecmp(client->channel, params[i])) {
+            // ERR_NOTONCHANNEL
+            snprintf(err, MAX_MSG_LEN, ":%s %d %s %s :You're not on that channel\n",
+                hostname, ERR_NOTONCHANNEL, client->nick, params[i]);
+            write_to_client(client->sock, err);
         } else {
-            snprintf(msg, sizeof(msg), ":%s leaving %s\n",
-                client->nick, params[i]);
-            notify_quit(client, msg);
+            snprintf(err, MAX_MSG_LEN, ":leaving %s", params[i]);
+            notify_quit(client, err, 1);
         }
     }
-    *client->channel = '\0';
 }
 
 
@@ -115,11 +142,27 @@ member of at most one channel. Joining a new channel should implicitly cause the
 to leave the current channel. */
 
 void cmd_join(CMD_ARGS) {
+
+    if (!is_valid_channel(params[0])) {
+
+        snprintf(err, MAX_MSG_LEN, ":%s %d %s %s :No such channel\n",
+            hostname, ERR_NOSUCHCHANNEL, client->nick, params[0]);
+        write_to_client(client->sock, err);
+        return;
+    }
+
+    // we only care about the first channel, thus params[0]
     if ( strcasecmp(client->channel, params[0]) ) {
-        // we only care about the first channel
-        cmd_part(client, prefix, params, 1);
-        strcpy(client->channel, params[0]);
-        notify_channel_join(client, params[0]);
+
+        char *ch = strdup(params[0]);
+        if ( *client->channel) {
+            // so we don't have to rewrite our function for part
+            strcpy(params[0], client->channel);
+            cmd_part(client, prefix, params, 1);
+        }
+        strcpy(client->channel, ch);
+        notify_channel_join(client, ch);
+        list_after_join(client, ch);
     }
 }
 
@@ -129,7 +172,11 @@ parameters and list all channels and the number of users on the local server in 
 Advanced Commands */
 
 void cmd_list(CMD_ARGS) {
+    snprintf(err, MAX_MSG_LEN, ":%s Channel :Users Name\n", hostname);
+    write_to_client(client->sock, err);
     list_all_channels(client);
+    snprintf(err, MAX_MSG_LEN, ":%s :End of /LIST\n", hostname);
+    write_to_client(client->sock, err);
 }
 
 
@@ -139,15 +186,18 @@ except the message originator. If the target is a nickname, the message will be 
 that user. */
 
 void cmd_privmsg(CMD_ARGS) {
-    for (int i = 0; i < n_params; i++) {
-        if (channel_exists(params[i])) {
-            send_to_channel(client, params[i], params[n_params]);
+    char *token = strtok(params[0], ",");
+    while (token != NULL) {
+        if (channel_exists(token)) {
+            send_to_channel(client, token, params[1]);
         } else {
-            if (!send_to_user(client, params[i], params[n_params])) {
-                // write_to_client(client->sock, ERR_NORECIPIENT);
-                write_to_client(client->sock, error);
+            if (!send_to_user(client, token, params[1])) {
+                snprintf(err, sizeof(err), ":%s %s :No such nick/channel\n",
+                    hostname, token);
+                write_to_client(client->sock, err);
             }
         }
+        token = strtok(NULL, ",");
     }
 }
 
@@ -157,7 +207,19 @@ to support querying channels on the local server. It should do an exact match on
 name and return the users on that channel. */
 
 void cmd_who(CMD_ARGS) {
-    list_users_on(client, params[0]);
+
+    if (n_params == 0) {
+        list_users_on(client, client->channel);
+    } else {
+        char *token = strtok(params[0], ",");
+        while (token != NULL) {
+            if (channel_exists(token)) {
+                list_users_on(client, token);
+            }
+            token = strtok(NULL, ",");
+        }
+    }
+
 }
 
 
@@ -195,6 +257,8 @@ void handle_line(char *line, client *client) {
     char *command, *pstart, *params[MAX_MSG_TOKENS];
     int n_params = 0;
 
+    gethostname(hostname, MAX_HOSTNAME);
+
     DPRINTF(DEBUG_INPUT, "Handling line: %s\n", line);
 
     command = line;
@@ -204,9 +268,9 @@ void handle_line(char *line, client *client) {
     }
 
     if (!command || *command == '\0') {
-        /* Send ERR_UNKNOWNCOMMAND */
-        // write_to_client(client->sock, ERR_UNKNOWNCOMMAND);
-        write_to_client(client->sock, error);
+        // ERR_UNKNOWNCOMMAND
+        snprintf(err, sizeof(err), "%s :Unknown command\n", command);
+        write_to_client(client->sock, err);
         return;
     }
 
@@ -215,9 +279,9 @@ void handle_line(char *line, client *client) {
     }
 
     if (*command == '\0') {
-        /* Send ERR_UNKNOWNCOMMAND */
-        // write_to_client(client->sock, ERR_UNKNOWNCOMMAND);
-        write_to_client(client->sock, error);
+        // ERR_UNKNOWNCOMMAND
+        snprintf(err, sizeof(err), "%s :Unknown command\n", command);
+        write_to_client(client->sock, err);
         return;
     }
 
@@ -270,17 +334,36 @@ void handle_line(char *line, client *client) {
     for (i = 0; i < NELMS(cmds); i++) {
     	if (!strcasecmp(cmds[i].cmd, command)) {
     	    if (cmds[i].needreg && !client->registered ) {
-                // raise ERR_NOTREGISTERED
         		/* ERROR - the client is not registered and they need
         		 * to be in order to use this command! */
-                // write_to_client(client->sock, ERR_NOTREGISTERED);
-                write_to_client(client->sock, error);
+                // ERR_NOTREGISTERED
+                snprintf(err, MAX_MSG_LEN, ":%s %d %s :You have not registered\n",
+                    hostname, ERR_NOTREGISTERED, client->nick);
+                write_to_client(client->sock, err);
             } else if (n_params < cmds[i].minparams) {
         		/* ERROR - the client didn't specify enough parameters
         		 * for this command! */
-                // raise ERR_NEEDMOREPARAMS
-                // write_to_client(client->sock, ERR_NEEDMOREPARAMS);
-                write_to_client(client->sock, error);
+
+                if (!strcasecmp(command, "nick")) {
+                    // ERR_NONICKNAMEGIVEN
+                    snprintf(err, MAX_MSG_LEN, ":%s %d %s :No nickname given\n",
+                        hostname, ERR_NONICKNAMEGIVEN, client->nick);
+                } else if (!strcasecmp(command, "privmsg")) {
+                    if ( n_params == 0 ) {
+                        // ERR_NORECIPIENT
+                        snprintf(err, MAX_MSG_LEN, ":%s %d %s :No recipient given (NICK)\n",
+                            hostname, ERR_NORECIPIENT, client->nick);
+                    } else if ( n_params == 1 ) {
+                        // ERR_NOTEXTTOSEND
+                        snprintf(err, MAX_MSG_LEN, ":%s %d %s :No text to send\n",
+                            hostname, ERR_NORECIPIENT, client->nick);
+                    }
+                } else {
+                    // ERR_NEEDMOREPARAMS
+                    snprintf(err, MAX_MSG_LEN, ":%s %d %s %s :Not enough parameters\n",
+                        hostname, ERR_NEEDMOREPARAMS, client->nick, command);
+                }
+                write_to_client(client->sock, err);
             } else {
         		/* Here's the call to the cmd_foo handler... modify
         		 * to send it the right params per your program
@@ -292,9 +375,10 @@ void handle_line(char *line, client *client) {
     }
 
     if (i == NELMS(cmds)) {
-    	/* ERROR - unknown command! */
-        // raise ERR_UNKNOWNCOMMAND
-        // write_to_client(client->sock, ERR_UNKNOWNCOMMAND);
-        write_to_client(client->sock, error);
+        /* ERROR - unknown command! */
+        // ERR_UNKNOWNCOMMAND
+        snprintf(err, MAX_MSG_LEN, ":%s %d %s %s ::Unknown command\n",
+            hostname, ERR_UNKNOWNCOMMAND, client->nick, command);
+        write_to_client(client->sock, err);
     }
 }
