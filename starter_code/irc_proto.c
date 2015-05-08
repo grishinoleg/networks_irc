@@ -143,13 +143,13 @@ to leave the current channel. */
 
 void cmd_join(CMD_ARGS) {
 
-    if (!is_valid_channel(params[0])) {
+    // if (!is_valid_channel(params[0])) {
 
-        snprintf(err, MAX_MSG_LEN, ":%s %d %s %s :No such channel\n",
-            hostname, ERR_NOSUCHCHANNEL, client->nick, params[0]);
-        write_to_client(client->sock, err);
-        return;
-    }
+    //     snprintf(err, MAX_MSG_LEN, ":%s %d %s %s :No such channel\n",
+    //         hostname, ERR_NOSUCHCHANNEL, client->nick, params[0]);
+    //     write_to_client(client->sock, err);
+    //     return;
+    // }
 
     // we only care about the first channel, thus params[0]
     if ( strcasecmp(client->channel, params[0]) ) {
@@ -209,7 +209,9 @@ name and return the users on that channel. */
 void cmd_who(CMD_ARGS) {
 
     if (n_params == 0) {
-        list_users_on(client, client->channel);
+        if (channel_exists(client->channel)) {
+            list_users_on(client, client->channel);
+        }
     } else {
         char *token = strtok(params[0], ",");
         while (token != NULL) {

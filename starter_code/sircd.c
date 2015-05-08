@@ -447,7 +447,7 @@ void who_user(client *client, char *nickname) {
 void list_users_on(client *client, char *channel) {
 
     for (int i = 0; i < FD_SETSIZE; ++i) {
-        if (!strcasecmp(channel, clients[i].channel) ) {
+        if (!strcasecmp(channel, clients[i].channel)) {
             snprintf(msg, MAX_MSG_LEN, "%s %s %s %s %s H :%s\n",
                 channel, clients[i].user, clients[i].hostname,
                 clients[i].servername, clients[i].nick,
